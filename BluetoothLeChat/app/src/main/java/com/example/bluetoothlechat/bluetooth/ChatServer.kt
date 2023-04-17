@@ -170,7 +170,7 @@ object ChatServer {
         // need to ensure that the property is writable and has the write permission
         val messageCharacteristic = BluetoothGattCharacteristic(
             MESSAGE_UUID,
-            BluetoothGattCharacteristic.PROPERTY_WRITE,
+            BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
             BluetoothGattCharacteristic.PERMISSION_WRITE
         )
         service.addCharacteristic(messageCharacteristic)
@@ -311,7 +311,8 @@ object ChatServer {
                         Log.i(TAG, "packet ${subPackageData.sequence} md5 is ${md5}")
                         val confirmData = generateConfirmation(subPackageData.sequence, subPackageData.pkgSN, rsp, 1.toByte())
                         characteristic.value = confirmData
-                        gattServer?.notifyCharacteristicChanged(device, characteristic, false)
+                        val ret = gattServer?.notifyCharacteristicChanged(device, characteristic, false)
+                        Log.i(TAG, "notify method return ${ret}")
                         //gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, confirmData)
                     }
                 }
