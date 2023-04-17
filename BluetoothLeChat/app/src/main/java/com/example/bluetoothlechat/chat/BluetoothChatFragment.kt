@@ -59,7 +59,7 @@ class BluetoothChatFragment : Fragment() {
 
     private val connectionRequestObserver = Observer<BluetoothDevice> { device ->
         Log.d(TAG, "Connection request observer: have device $device")
-        ChatServer.setCurrentChatConnection(device)
+        ChatServer.updateConnectionState(device)
     }
 
     private val messageObserver = Observer<Message> { message ->

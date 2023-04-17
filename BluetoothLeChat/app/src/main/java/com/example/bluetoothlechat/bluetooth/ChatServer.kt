@@ -22,12 +22,16 @@ import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
 import android.content.Context
+import android.os.HandlerThread
 import android.os.ParcelUuid
 import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import com.example.bluetoothlechat.bluetooth.Message.RemoteMessage
 import com.example.bluetoothlechat.chat.DeviceConnectionState
+import com.example.bluetoothlechat.handler.CommHandlerThread
+import com.example.bluetoothlechat.models.BtPackageData
+import com.example.bluetoothlechat.models.BtSubPackageData
+import org.apache.commons.codec.digest.DigestUtils
 
 private const val TAG = "ChatServer"
 
@@ -73,7 +77,8 @@ object ChatServer {
     val deviceConnection = _deviceConnection as LiveData<DeviceConnectionState>
     private var gatt: BluetoothGatt? = null
     private var messageCharacteristic: BluetoothGattCharacteristic? = null
-
+    private val receivingBuf = HashMap<Int, BtPackageData>()
+    private var handlerThread: HandlerThread? = null
     fun startServer(app: Application) {
         bluetoothManager = app.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         if (!adapter.isEnabled) {
@@ -83,6 +88,7 @@ object ChatServer {
             _requestEnableBluetooth.value = false
             setupGattServer(app)
             startAdvertisement()
+            handlerThread = CommHandlerThread("Handler", this)
         }
     }
 
@@ -105,6 +111,12 @@ object ChatServer {
         // Set gatt so BluetoothChatFragment can display the device data
         _deviceConnection.value = DeviceConnectionState.Connected(device)
         connectToChatDevice(device)
+    }
+    fun updateConnectionState(device: BluetoothDevice) {
+        currentDevice = device
+        // Set gatt so BluetoothChatFragment can display the device data
+        _deviceConnection.value = DeviceConnectionState.Connected(device)
+        //connectToChatDevice(device)
     }
 
     private fun connectToChatDevice(device: BluetoothDevice) {
@@ -131,6 +143,7 @@ object ChatServer {
         }
         return false
     }
+
 
     /**
      * Function to setup a local GATT server.
@@ -260,16 +273,62 @@ object ChatServer {
         ) {
             super.onCharacteristicWriteRequest(device, requestId, characteristic, preparedWrite, responseNeeded, offset, value)
             if (characteristic.uuid == MESSAGE_UUID) {
-                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
-                val message = value?.toString(Charsets.UTF_8)
-                Log.d(TAG, "onCharacteristicWriteRequest: Have message: \"$message\"")
-                message?.let {
-                    _messages.postValue(RemoteMessage(it))
+ //               gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
+////                val message = value?.toString(Charsets.UTF_8)
+////                Log.d(TAG, "onCharacteristicWriteRequest: Have message: \"$message\"")
+////                message?.let {
+////                    _messages.postValue(RemoteMessage(it))
+////                }
+                val remoteData = value
+                Log.i(TAG, "receiving and parsing data")
+                remoteData?.let {
+                    Log.i(TAG, "receiving data length ${it.size}")
+                    val subPackageData = BtSubPackageData.parseData(it)
+                    if (subPackageData.validFlag == 0){
+                        var rsp: ByteArray? = null
+
+                        when (subPackageData.control) {
+                            1.toByte() -> {
+                                val btPackageData = BtPackageData(subPackageData.pkgSN,
+                                    subPackageData.subPkgCount.toInt())
+
+                                btPackageData.addSubPackage(subPackageData)
+                                receivingBuf[subPackageData.pkgSN] = btPackageData
+                            }
+                            2.toByte() ->{
+                                receivingBuf[subPackageData.pkgSN]?.addSubPackage(subPackageData)
+                            }
+                            3.toByte() -> {
+                                receivingBuf[subPackageData.pkgSN]?.addSubPackage(subPackageData)
+                                val data = receivingBuf[subPackageData.pkgSN]?.assembleSubPackages()
+                                rsp = ByteArray(2)
+                                rsp[0] = 0x31
+                                rsp[1] = 0x00
+                            }
+                        }
+                        val md5 = DigestUtils.md5Hex(subPackageData.data)
+
+                        Log.i(TAG, "packet ${subPackageData.sequence} md5 is ${md5}")
+                        val confirmData = generateConfirmation(subPackageData.sequence, subPackageData.pkgSN, rsp, 1.toByte())
+                        characteristic.value = confirmData
+                        gattServer?.notifyCharacteristicChanged(device, characteristic, false)
+                        //gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, confirmData)
+                    }
                 }
             }
         }
     }
 
+    fun generateConfirmation(
+        sequence: Short,
+        pkgSN: Int,
+        data: ByteArray?,
+        msgType: Byte
+    ): ByteArray? {
+        val btSubPackageData =
+            BtSubPackageData(sequence, 4.toByte(), data, pkgSN, 1.toShort(), msgType)
+        return btSubPackageData.constructSendingData()
+    }
     private class GattClientCallback : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             super.onConnectionStateChange(gatt, status, newState)
@@ -279,7 +338,7 @@ object ChatServer {
             // try to send a message to the other device as a test
             if (isSuccess && isConnected) {
                 // discover services
-                gatt.discoverServices()
+                gatt.requestMtu(30);
             }
         }
 
@@ -290,6 +349,16 @@ object ChatServer {
                 gatt = discoveredGatt
                 val service = discoveredGatt.getService(SERVICE_UUID)
                 messageCharacteristic = service.getCharacteristic(MESSAGE_UUID)
+            }
+        }
+
+        override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
+            super.onMtuChanged(gatt, mtu, status)
+            if (status == BluetoothGatt.GATT_SUCCESS){
+                Log.d(TAG, "request new mtu" + mtu + " succeeded");
+                gatt?.let{
+                    it.discoverServices()
+                }
             }
         }
     }
