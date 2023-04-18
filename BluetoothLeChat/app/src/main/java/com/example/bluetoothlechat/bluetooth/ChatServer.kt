@@ -280,13 +280,18 @@ object ChatServer {
 ////                    _messages.postValue(RemoteMessage(it))
 ////                }
                 val remoteData = value
+                var md5 = ""
                 Log.i(TAG, "receiving and parsing data")
                 remoteData?.let {
                     Log.i(TAG, "receiving data length ${it.size}")
                     val subPackageData = BtSubPackageData.parseData(it)
                     if (subPackageData.validFlag == 0){
-                        var rsp: ByteArray? = null
-
+                        var rsp: ByteArray? = ByteArray(2)
+                        rsp!![0] = 0x31
+                        rsp[1] = 0xff.toByte()
+//                        md5 = DigestUtils.md5Hex(subPackageData.data)
+//
+//                        Log.i(TAG, "packet ${subPackageData.sequence} md5 is ${md5}")
                         when (subPackageData.control) {
                             1.toByte() -> {
                                 val btPackageData = BtPackageData(subPackageData.pkgSN,
@@ -301,19 +306,18 @@ object ChatServer {
                             3.toByte() -> {
                                 receivingBuf[subPackageData.pkgSN]?.addSubPackage(subPackageData)
                                 val data = receivingBuf[subPackageData.pkgSN]?.assembleSubPackages()
-                                rsp = ByteArray(2)
+                                md5 = DigestUtils.md5Hex(data)
+                                Log.i(TAG, "total packet ${data?.size} bytes md5 is ${md5}")
+
                                 rsp[0] = 0x31
                                 rsp[1] = 0x00
                             }
                         }
-                        val md5 = DigestUtils.md5Hex(subPackageData.data)
-
-                        Log.i(TAG, "packet ${subPackageData.sequence} md5 is ${md5}")
+                        gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
                         val confirmData = generateConfirmation(subPackageData.sequence, subPackageData.pkgSN, rsp, 1.toByte())
                         characteristic.value = confirmData
                         val ret = gattServer?.notifyCharacteristicChanged(device, characteristic, false)
                         Log.i(TAG, "notify method return ${ret}")
-                        //gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, confirmData)
                     }
                 }
             }

@@ -120,14 +120,12 @@ public class BtSubPackageData {
         if (data[0] != 0x5a) return 1;
         if (data.length < 10) return  2;
 
-        int bcc = calcCheckSum(data, 0, data.length - 2);
-        short checksum = data[data.length - 1];
-        checksum = (short) (checksum << 8);
-        checksum |= data[data.length - 2];
+        byte bcc = calcCheckSum(data, 0, data.length - 2);
+        byte checksum = data[data.length - 2];
         return checksum == bcc? 0: 3;
     }
-    public static int calcCheckSum(byte[]data, int offset, int len){
-        int bcc = 0;
+    public static byte calcCheckSum(byte[]data, int offset, int len){
+        byte bcc = 0;
         for (int i = offset ;i < offset + len; i++){
             bcc ^= data[i];
         }
@@ -155,9 +153,12 @@ public class BtSubPackageData {
                 pkgSN |= (mask & data[6]) << 8;
                 short sequence = data[7];
 
-                byte[] pd = new byte[len - 6];
+                byte[] pd = null;
+                if (len > 6) {
+                    pd = new byte[len - 6];
 
-                System.arraycopy(data, 9, pd, 0, len - 6);
+                    System.arraycopy(data, 9, pd, 0, len - 6);
+                }
                 ret = new BtSubPackageData(sequence,  control, pd, pkgSN, subPkgCount, data[8]);
 
             }
@@ -192,9 +193,9 @@ public class BtSubPackageData {
         if (data != null) {
             System.arraycopy(data, 0, ret, 9, data.length);
         }
-        int checksum = calcCheckSum(ret, 0, dataLen - 2);
-        ret[dataLen - 2] = (byte) checksum;
-        ret[dataLen - 1] = (byte) (checksum >> 8);
+        byte checksum = calcCheckSum(ret, 0, dataLen - 2);
+        ret[dataLen - 2] = checksum;
+        ret[dataLen - 1] = 0;
         return ret;
     }
     private void saveInt(byte[] pd, int offset, int len, int data){

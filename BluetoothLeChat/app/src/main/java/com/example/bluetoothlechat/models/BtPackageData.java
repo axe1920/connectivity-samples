@@ -52,8 +52,11 @@ public class BtPackageData {
         for (int i = 0; i < subPkgs.length; i++){
             len += subPkgs[i].getData().length - 1;
         }
-        ret = new byte[len];
-        int pos = 0;
+        ret = new byte[len + 1];
+        if (len > 0) {
+            ret[0] = subPkgs[0].getData()[0];
+        }
+        int pos = 1;
         for (int i = 0; i < subPkgs.length; i++){
             byte[] subData = subPkgs[i].getData();
             System.arraycopy(subData, 1, ret, pos, subData.length -1);
